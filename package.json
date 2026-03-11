@@ -1,0 +1,18 @@
+{
+  "name": "picoclaw-os",
+  "version": "0.1.0",
+  "description": "PicoClaw OS — Reflections dashboard for autonomous agents",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev src/worker.ts",
+    "deploy": "wrangler deploy src/worker.ts",
+    "bundle": "bun build src/worker.ts --target=browser --format=esm --minify --outdir=dist"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
