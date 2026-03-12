@@ -125,6 +125,30 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
   });
 }
 
+// ── API: tasks ──
+async function handleApiTasks(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const tasks = await fetchTasks(env, {
+    status: url.searchParams.get("status") ?? undefined,
+    limit: parseInt(url.searchParams.get("limit") || "100"),
+  });
+  return new Response(JSON.stringify(tasks), {
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+  });
+}
+
+// ── API: requests ──
+async function handleApiRequests(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const requests = await fetchRequests(env, {
+    status: url.searchParams.get("status") ?? undefined,
+    limit: parseInt(url.searchParams.get("limit") || "100"),
+  });
+  return new Response(JSON.stringify(requests), {
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+  });
+}
+
 // ── Worker entry ──
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -138,6 +162,8 @@ export default {
       if (path === "/api/stats") return await handleApiStats(env);
       if (path === "/api/sessions") return await handleApiSessions(env);
       if (path === "/api/memory") return await handleApiWorkingMemory(request, env);
+      if (path === "/api/tasks") return await handleApiTasks(request, env);
+      if (path === "/api/requests") return await handleApiRequests(request, env);
       return await handleDashboard(request, env);
     } catch (err: any) {
       return new Response(`Error: ${err.message}`, { status: 500 });
