@@ -3,7 +3,7 @@
  */
 
 import { createClient, type Client } from "@libsql/client/web";
-import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, PicoRequest, RequestStats } from "./types.ts";
+import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats } from "./types.ts";
 
 export function getDb(env: Env): Client {
   return createClient({
@@ -230,5 +230,39 @@ export async function fetchRequestStats(env: Env): Promise<RequestStats> {
     total: Number(totalR.rows[0].c),
     pending: byStatus.pending || 0,
     done: byStatus.done || 0,
+  };
+}
+
+// ── CLAUDE.md Snapshots ──
+
+export async function fetchSnapshotsMeta(env: Env): Promise<SnapshotMeta[]> {
+  const db = getDb(env);
+  const result = await db.execute(
+    "SELECT id, hash, created_at, trigger, LENGTH(content) as content_len FROM claude_md_snapshots ORDER BY created_at DESC"
+  );
+  return result.rows as unknown as SnapshotMeta[];
+}
+
+export async function fetchSnapshot(env: Env, id: string): Promise<Snapshot | null> {
+  const db = getDb(env);
+  const result = await db.execute({
+    sql: "SELECT * FROM claude_md_snapshots WHERE id = ?",
+    args: [id],
+  });
+  return result.rows.length > 0 ? (result.rows[0] as unknown as Snapshot) : null;
+}
+
+export async function fetchSnapshotStats(env: Env): Promise<SnapshotStats> {
+  const db = getDb(env);
+  const [totalR, latestR, triggersR] = await Promise.all([
+    db.execute("SELECT COUNT(*) as c FROM claude_md_snapshots"),
+    db.execute("SELECT created_at FROM claude_md_snapshots ORDER BY created_at DESC LIMIT 1"),
+    db.execute("SELECT COUNT(DISTINCT trigger) as c FROM claude_md_snapshots"),
+  ]);
+
+  return {
+    total: Number(totalR.rows[0].c),
+    latestDate: latestR.rows.length > 0 ? (latestR.rows[0].created_at as string).slice(0, 10) : "—",
+    triggerCount: Number(triggersR.rows[0].c),
   };
 }

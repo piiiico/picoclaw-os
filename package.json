@@ -5,9 +5,11 @@
   "private": false,
   "type": "module",
   "scripts": {
+    "check": "bun check-views.ts",
     "dev": "wrangler dev src/worker.ts",
+    "predeploy": "bun check-views.ts",
     "deploy": "wrangler deploy src/worker.ts",
-    "bundle": "bun build src/worker.ts --target=browser --format=esm --minify --outdir=dist"
+    "bundle": "bun check-views.ts && bun build src/worker.ts --target=browser --format=esm --minify --outdir=dist"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0"

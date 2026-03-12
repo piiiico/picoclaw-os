@@ -16,6 +16,9 @@ import {
   fetchTaskStats,
   fetchRequests,
   fetchRequestStats,
+  fetchSnapshotsMeta,
+  fetchSnapshot,
+  fetchSnapshotStats,
 } from "./db.ts";
 import { pageShell } from "./html/layout.ts";
 import { renderReflectionsView } from "./views/reflections.ts";
@@ -23,6 +26,7 @@ import { renderSessionsView } from "./views/sessions.ts";
 import { renderWorkingMemoryView } from "./views/working-memory.ts";
 import { renderTasksView } from "./views/tasks.ts";
 import { renderRequestsView } from "./views/requests.ts";
+import { renderEvolutionView, renderSnapshotView, renderDiffView } from "./views/evolution.ts";
 
 // ── Auth ──
 function checkAuth(request: Request, env: Env): Response | null {
@@ -110,6 +114,31 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     ]);
     content = renderRequestsView(requests, stats);
     title = "Requests";
+  } else if (view === "evolution") {
+    const [snapshots, stats] = await Promise.all([
+      fetchSnapshotsMeta(env),
+      fetchSnapshotStats(env),
+    ]);
+    content = renderEvolutionView(snapshots, stats, key);
+    title = "Evolution";
+  } else if (view === "snapshot") {
+    const id = url.searchParams.get("id");
+    if (!id) return new Response("Missing snapshot id", { status: 400 });
+    const snap = await fetchSnapshot(env, id);
+    if (!snap) return new Response("Snapshot not found", { status: 404 });
+    content = renderSnapshotView(snap, key);
+    title = "Snapshot";
+  } else if (view === "diff") {
+    const a = url.searchParams.get("a");
+    const b = url.searchParams.get("b");
+    if (!a || !b) return new Response("Missing snapshot ids (a, b)", { status: 400 });
+    const [snapA, snapB] = await Promise.all([
+      fetchSnapshot(env, a),
+      fetchSnapshot(env, b),
+    ]);
+    if (!snapA || !snapB) return new Response("Snapshot(s) not found", { status: 404 });
+    content = renderDiffView(snapA, snapB, key);
+    title = "Diff";
   } else {
     const [reflections, stats] = await Promise.all([
       fetchReflections(env),
@@ -149,6 +178,14 @@ async function handleApiRequests(request: Request, env: Env): Promise<Response> 
   });
 }
 
+// ── API: evolution ──
+async function handleApiEvolution(request: Request, env: Env): Promise<Response> {
+  const snapshots = await fetchSnapshotsMeta(env);
+  return new Response(JSON.stringify(snapshots), {
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+  });
+}
+
 // ── Worker entry ──
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -164,6 +201,7 @@ export default {
       if (path === "/api/memory") return await handleApiWorkingMemory(request, env);
       if (path === "/api/tasks") return await handleApiTasks(request, env);
       if (path === "/api/requests") return await handleApiRequests(request, env);
+      if (path === "/api/evolution") return await handleApiEvolution(request, env);
       return await handleDashboard(request, env);
     } catch (err: any) {
       return new Response(`Error: ${err.message}`, { status: 500 });

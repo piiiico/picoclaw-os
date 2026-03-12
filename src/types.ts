@@ -113,3 +113,34 @@ export interface RequestStats {
   pending: number;
   done: number;
 }
+
+// ── CLAUDE.md Evolution ──
+
+export interface Snapshot {
+  id: string;
+  content: string;
+  hash: string;
+  created_at: string;
+  trigger: string;
+}
+
+export interface SnapshotMeta {
+  id: string;
+  hash: string;
+  created_at: string;
+  trigger: string;
+  content_len: number;
+}
+
+export interface SnapshotStats {
+  total: number;
+  latestDate: string;
+  triggerCount: number;
+}
+
+export interface DiffLine {
+  type: "add" | "remove" | "same";
+  content: string;
+  oldNum?: number;
+  newNum?: number;
+}

@@ -35,6 +35,12 @@ export function pageShell(opts: {
     details[open] > summary::before { transform: rotate(90deg); }
     a { color: #10b981; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .diff-add { background: #10b98115; color: #6ee7b7; }
+    .diff-remove { background: #ef444415; color: #fca5a5; }
+    .diff-same { color: #6b7280; }
+    .diff-gutter { color: #4b5563; user-select: none; min-width: 80px; text-align: right; padding-right: 12px; border-right: 1px solid #262626; margin-right: 12px; }
+    .diff-line { display: flex; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; padding: 0 8px; }
+    .diff-marker { min-width: 20px; text-align: center; user-select: none; font-weight: 600; }
     .nav-link:hover { color: #e0e0e0 !important; text-decoration: none !important; }
     .refresh-btn {
       background: #1a1a1a;
@@ -61,6 +67,7 @@ export function pageShell(opts: {
       <span style="font-size:18px;font-weight:700;color:#10b981">PicoClaw OS</span>
       <nav style="display:flex;gap:4px">
         ${navLink("reflections", "Reflections")}
+        ${navLink("evolution", "Evolution")}
         ${navLink("tasks", "Tasks")}
         ${navLink("requests", "Requests")}
         ${navLink("memory", "Working Memory")}
