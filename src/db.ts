@@ -167,7 +167,7 @@ export async function fetchTasks(env: Env, opts: { status?: string; limit?: numb
   const limit = opts.limit ?? 100;
 
   const result = await db.execute({
-    sql: `SELECT * FROM tasks ${where} ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END, priority DESC, created_at ASC LIMIT ?`,
+    sql: `SELECT * FROM tasks ${where} ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 WHEN 'blocked' THEN 2 WHEN 'failed' THEN 3 ELSE 4 END, priority DESC, created_at ASC LIMIT ?`,
     args: [...args, limit],
   });
 
@@ -188,6 +188,7 @@ export async function fetchTaskStats(env: Env): Promise<TaskStats> {
   return {
     total: Number(totalR.rows[0].c),
     pending: byStatus.pending || 0,
+    blocked: byStatus.blocked || 0,
     completed: byStatus.completed || 0,
     failed: byStatus.failed || 0,
     byModel,
