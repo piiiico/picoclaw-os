@@ -58,14 +58,24 @@ export function pageShell(opts: {
     th { text-align: left; color: #6b7280; font-size: 12px; font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #262626; }
     td { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; font-size: 13px; vertical-align: middle; }
     tr:hover td { background: #111; }
+    /* Responsive layout helpers */
+    .sidebar-grid { display: grid; grid-template-columns: 1fr 280px; gap: 24px; }
+    .page-content { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .sticky-sidebar { position: sticky; top: 24px; }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    @media (max-width: 768px) {
+      .sidebar-grid { grid-template-columns: 1fr; }
+      .sticky-sidebar { position: static; }
+      .page-content { padding: 12px; }
+    }
   </style>
 </head>
 <body>
   <!-- Top bar -->
   <div style="background:#111;border-bottom:1px solid #262626;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div style="display:flex;align-items:center;gap:16px">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <span style="font-size:18px;font-weight:700;color:#10b981">PicoClaw OS</span>
-      <nav style="display:flex;gap:4px">
+      <nav style="display:flex;flex-wrap:wrap;gap:4px">
         ${navLink("reflections", "Reflections")}
         ${navLink("evolution", "Evolution")}
         ${navLink("tasks", "Tasks")}
@@ -80,7 +90,7 @@ export function pageShell(opts: {
     </div>
   </div>
 
-  <div style="max-width:1200px;margin:0 auto;padding:24px">
+  <div class="page-content">
     ${opts.content}
   </div>
 

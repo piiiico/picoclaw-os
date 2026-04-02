@@ -84,11 +84,14 @@ export interface Task {
   picked_up_at: string | null;
   completed_at: string | null;
   result: string | null;
+  blocked_reason: string | null;
+  blocked_until: string | null;
 }
 
 export interface TaskStats {
   total: number;
   pending: number;
+  blocked: number;
   completed: number;
   failed: number;
   byModel: Record<string, number>;
