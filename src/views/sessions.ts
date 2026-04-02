@@ -66,7 +66,7 @@ export function renderSessionsView(
     </div>
 
     <!-- Layout: cards + sidebar -->
-    <div style="display:grid;grid-template-columns:1fr 220px;gap:24px">
+    <div class="sidebar-grid">
       <div>
         <h2 style="font-size:16px;font-weight:600;margin-bottom:16px;color:#e0e0e0">Session Log</h2>
         <div style="display:flex;flex-direction:column;gap:8px">
@@ -76,7 +76,7 @@ export function renderSessionsView(
       </div>
 
       <div>
-        <div style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:16px;position:sticky;top:24px">
+        <div class="sticky-sidebar" style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:16px">
           <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#e0e0e0">By Model</h3>
           ${renderModelBreakdown(stats)}
           ${stats.byModel.length === 0 ? '<div style="color:#4b5563;font-size:13px">No data yet</div>' : ""}

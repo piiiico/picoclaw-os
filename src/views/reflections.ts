@@ -81,13 +81,13 @@ export function renderReflectionsView(
     </div>
 
     <!-- Layout: timeline + sidebar -->
-    <div style="display:grid;grid-template-columns:1fr 280px;gap:24px">
+    <div class="sidebar-grid">
       <div>
         <h2 style="font-size:16px;font-weight:600;margin-bottom:16px;color:#e0e0e0">Reflections Timeline</h2>
         ${renderTimeline(reflections)}
       </div>
       <div>
-        <div style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:16px;position:sticky;top:24px">
+        <div class="sticky-sidebar" style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:16px">
           <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#e0e0e0">By Domain</h3>
           ${renderDomainSidebar(stats)}
         </div>
