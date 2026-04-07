@@ -14,6 +14,7 @@ import {
   fetchWorkingMemoryStats,
   fetchTasks,
   fetchTaskStats,
+  fetchTaskDependencyMap,
   fetchRequests,
   fetchRequestStats,
   fetchSnapshotsMeta,
@@ -101,11 +102,13 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     content = renderWorkingMemoryView(entries, stats);
     title = "Working Memory";
   } else if (view === "tasks") {
+    const source = url.searchParams.get("source") ?? undefined;
     const [tasks, stats] = await Promise.all([
-      fetchTasks(env),
+      fetchTasks(env, { source }),
       fetchTaskStats(env),
     ]);
-    content = renderTasksView(tasks, stats);
+    const depMap = await fetchTaskDependencyMap(env, tasks);
+    content = renderTasksView(tasks, stats, depMap, source ?? null);
     title = "Tasks";
   } else if (view === "requests") {
     const [requests, stats] = await Promise.all([

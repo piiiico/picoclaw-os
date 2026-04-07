@@ -3,7 +3,7 @@
  */
 
 import { createClient, type Client } from "@libsql/client/web";
-import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats } from "./types.ts";
+import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, TaskDependencyMap, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats } from "./types.ts";
 
 export function getDb(env: Env): Client {
   return createClient({
@@ -153,7 +153,10 @@ export async function fetchWorkingMemoryStats(env: Env): Promise<WorkingMemorySt
 
 // ── Tasks ──
 
-export async function fetchTasks(env: Env, opts: { status?: string; limit?: number } = {}): Promise<Task[]> {
+export async function fetchTasks(
+  env: Env,
+  opts: { status?: string; source?: string; limit?: number } = {}
+): Promise<Task[]> {
   const db = getDb(env);
   const conditions: string[] = [];
   const args: any[] = [];
@@ -162,12 +165,32 @@ export async function fetchTasks(env: Env, opts: { status?: string; limit?: numb
     conditions.push("status = ?");
     args.push(opts.status);
   }
+  if (opts.source) {
+    conditions.push("source = ?");
+    args.push(opts.source);
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = opts.limit ?? 100;
+  const limit = opts.limit ?? 300;
 
   const result = await db.execute({
-    sql: `SELECT * FROM tasks ${where} ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 WHEN 'blocked' THEN 2 WHEN 'failed' THEN 3 ELSE 4 END, priority DESC, created_at ASC LIMIT ?`,
+    sql: `SELECT *,
+      (priority + CAST((julianday('now') - julianday(created_at)) * 0.1 AS INTEGER)) as weighted_priority
+    FROM tasks ${where}
+    ORDER BY
+      CASE status
+        WHEN 'needs_review'   THEN 0
+        WHEN 'pending_review' THEN 1
+        WHEN 'in_progress'    THEN 2
+        WHEN 'pending'        THEN 3
+        WHEN 'blocked'        THEN 4
+        WHEN 'failed'         THEN 5
+        WHEN 'cancelled'      THEN 6
+        ELSE 7
+      END,
+      (priority + CAST((julianday('now') - julianday(created_at)) * 0.1 AS INTEGER)) DESC,
+      created_at ASC
+    LIMIT ?`,
     args: [...args, limit],
   });
 
@@ -176,23 +199,118 @@ export async function fetchTasks(env: Env, opts: { status?: string; limit?: numb
 
 export async function fetchTaskStats(env: Env): Promise<TaskStats> {
   const db = getDb(env);
-  const [totalR, statusR, modelR] = await Promise.all([
-    db.execute("SELECT COUNT(*) as c FROM tasks"),
-    db.execute("SELECT status, COUNT(*) as c FROM tasks GROUP BY status"),
-    db.execute("SELECT model, COUNT(*) as c FROM tasks WHERE status = 'pending' GROUP BY model"),
+  const [statsR, modelR, sourceR] = await Promise.all([
+    db.execute(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'pending'        THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'in_progress'    THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN status = 'completed'      THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN status = 'failed'         THEN 1 ELSE 0 END) as failed,
+        SUM(CASE WHEN status = 'cancelled'      THEN 1 ELSE 0 END) as cancelled,
+        SUM(CASE WHEN status = 'blocked'        THEN 1 ELSE 0 END) as blocked,
+        SUM(CASE WHEN status = 'pending_review' THEN 1 ELSE 0 END) as pending_review,
+        SUM(CASE WHEN status = 'needs_review'   THEN 1 ELSE 0 END) as needs_review,
+        SUM(CASE WHEN status = 'in_progress'
+                  AND picked_up_at < datetime('now', '-1 hour') THEN 1 ELSE 0 END) as stuck,
+        SUM(CASE WHEN status = 'failed'
+                  AND retry_count > 0 THEN 1 ELSE 0 END) as zombie,
+        SUM(CASE WHEN (status = 'pending' OR status = 'in_progress')
+                  AND retry_count > 0 THEN 1 ELSE 0 END) as with_retries,
+        SUM(CASE WHEN status IN ('pending','in_progress') THEN 1 ELSE 0 END) as active_total
+      FROM tasks
+    `),
+    db.execute(`
+      SELECT model, COUNT(*) as c FROM tasks
+      WHERE status IN ('pending','in_progress','pending_review','needs_review','blocked')
+      GROUP BY model
+    `),
+    db.execute(`
+      SELECT source, COUNT(*) as c FROM tasks GROUP BY source
+    `),
   ]);
 
-  const byStatus = Object.fromEntries(statusR.rows.map((r) => [r.status, Number(r.c)]));
-  const byModel = Object.fromEntries(modelR.rows.map((r) => [r.model as string, Number(r.c)]));
+  const row = statsR.rows[0] as any;
+  const total = Number(row.total);
+  const completed = Number(row.completed);
+  const failed = Number(row.failed);
+  const stuckCount = Number(row.stuck);
+  const zombieCount = Number(row.zombie);
+  const blockedCount = Number(row.blocked);
+  const withRetries = Number(row.with_retries);
+  const activeTotal = Number(row.active_total);
+  const retryRate = activeTotal > 0 ? withRetries / activeTotal : 0;
+  const failRate = (completed + failed) > 0 ? failed / (completed + failed) : 0;
+
+  const healthScore = Math.max(0, Math.min(100,
+    100
+    - (stuckCount * 10)
+    - (zombieCount * 2)
+    - (blockedCount * 5)
+    - (retryRate * 30)
+    - (failRate * 20)
+  ));
+
+  const byModel = Object.fromEntries(modelR.rows.map((r: any) => [r.model as string, Number(r.c)]));
+  const bySource = Object.fromEntries(sourceR.rows.map((r: any) => [r.source as string, Number(r.c)]));
 
   return {
-    total: Number(totalR.rows[0].c),
-    pending: byStatus.pending || 0,
-    blocked: byStatus.blocked || 0,
-    completed: byStatus.completed || 0,
-    failed: byStatus.failed || 0,
+    total,
+    pending: Number(row.pending),
+    in_progress: Number(row.in_progress),
+    completed,
+    failed,
+    cancelled: Number(row.cancelled),
+    blocked: blockedCount,
+    pending_review: Number(row.pending_review),
+    needs_review: Number(row.needs_review),
     byModel,
+    bySource,
+    retryRate,
+    stuckCount,
+    zombieCount,
+    healthScore: Math.round(healthScore),
   };
+}
+
+export async function fetchTaskDependencyMap(env: Env, tasks: Task[]): Promise<TaskDependencyMap> {
+  // Collect all unique dep IDs from tasks that have depends_on
+  const depIds = new Set<string>();
+  for (const task of tasks) {
+    if (task.depends_on) {
+      try {
+        const ids: string[] = JSON.parse(task.depends_on);
+        ids.forEach((id) => depIds.add(id));
+      } catch {}
+    }
+  }
+
+  if (depIds.size === 0) return {};
+
+  // Fetch titles and statuses for all dep IDs
+  const db = getDb(env);
+  const placeholders = Array.from(depIds).map(() => "?").join(",");
+  const result = await db.execute({
+    sql: `SELECT id, title, status FROM tasks WHERE id IN (${placeholders})`,
+    args: Array.from(depIds),
+  });
+
+  const depInfo = new Map<string, { id: string; title: string; status: string }>();
+  for (const row of result.rows as any[]) {
+    depInfo.set(row.id, { id: row.id, title: row.title, status: row.status });
+  }
+
+  // Build map: taskId -> resolved dep objects
+  const map: TaskDependencyMap = {};
+  for (const task of tasks) {
+    if (task.depends_on) {
+      try {
+        const ids: string[] = JSON.parse(task.depends_on);
+        map[task.id] = ids.map((id) => depInfo.get(id) || { id, title: "(unknown)", status: "unknown" });
+      } catch {}
+    }
+  }
+  return map;
 }
 
 // ── Requests ──

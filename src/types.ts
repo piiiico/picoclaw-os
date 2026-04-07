@@ -84,17 +84,37 @@ export interface Task {
   picked_up_at: string | null;
   completed_at: string | null;
   result: string | null;
+  depends_on: string | null;       // JSON array of task IDs
+  source: string | null;           // "hakon" | "autonomous" | "scheduled"
   blocked_reason: string | null;
   blocked_until: string | null;
+  retry_count: number;
+  max_retries: number;
+  last_failure_reason: string | null;
+  weighted_priority: number;       // computed: priority + age bonus
 }
 
 export interface TaskStats {
   total: number;
   pending: number;
-  blocked: number;
+  in_progress: number;
   completed: number;
   failed: number;
+  cancelled: number;
+  blocked: number;
+  pending_review: number;
+  needs_review: number;
   byModel: Record<string, number>;
+  bySource: Record<string, number>;
+  retryRate: number;    // 0-1: fraction of pending tasks with retry_count > 0
+  stuckCount: number;   // in_progress > 1h
+  zombieCount: number;  // failed with retry_count > 0
+  healthScore: number;  // 0-100
+}
+
+export interface TaskDependencyMap {
+  // task id -> array of { id, title, status }
+  [taskId: string]: Array<{ id: string; title: string; status: string }>;
 }
 
 // ── Requests (Håkon's action items) ──
@@ -117,7 +137,7 @@ export interface RequestStats {
   done: number;
 }
 
-// ── CLAUDE.md Evolution ──
+// ── CLAUDE.md Snapshots ──
 
 export interface Snapshot {
   id: string;
