@@ -145,6 +145,7 @@ export interface Snapshot {
   hash: string;
   created_at: string;
   trigger: string;
+  file: string;
 }
 
 export interface SnapshotMeta {
@@ -153,6 +154,7 @@ export interface SnapshotMeta {
   created_at: string;
   trigger: string;
   content_len: number;
+  file: string;
 }
 
 export interface SnapshotStats {
@@ -161,9 +163,34 @@ export interface SnapshotStats {
   triggerCount: number;
 }
 
+// Constitution files tracked by the evolution timeline.
+export const SNAPSHOT_FILES = ["my-prompt.md", "CLAUDE.md"] as const;
+export type SnapshotFile = (typeof SNAPSHOT_FILES)[number];
+
 export interface DiffLine {
   type: "add" | "remove" | "same";
   content: string;
   oldNum?: number;
   newNum?: number;
+}
+
+// ── Self-Modifications ──
+
+export interface SelfModification {
+  id: string;
+  created_at: string;
+  session_id: string | null;
+  artifact: string;
+  summary: string;
+  subtraction: string | null;
+  rationale: string | null;
+  prediction_id: string | null;
+  effect: string | null;
+}
+
+export interface SelfModificationStats {
+  total: number;
+  withPrediction: number;
+  withEffect: number;
+  withSubtraction: number;
 }

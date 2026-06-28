@@ -20,6 +20,8 @@ import {
   fetchSnapshotsMeta,
   fetchSnapshot,
   fetchSnapshotStats,
+  fetchSelfModifications,
+  fetchSelfModificationStats,
 } from "./db.ts";
 import { pageShell } from "./html/layout.ts";
 import { renderReflectionsView } from "./views/reflections.ts";
@@ -28,6 +30,7 @@ import { renderWorkingMemoryView } from "./views/working-memory.ts";
 import { renderTasksView } from "./views/tasks.ts";
 import { renderRequestsView } from "./views/requests.ts";
 import { renderEvolutionView, renderSnapshotView, renderDiffView } from "./views/evolution.ts";
+import { renderSelfModificationsView } from "./views/self-modifications.ts";
 
 // ── Auth ──
 function checkAuth(request: Request, env: Env): Response | null {
@@ -118,11 +121,13 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     content = renderRequestsView(requests, stats);
     title = "Requests";
   } else if (view === "evolution") {
+    const fileParam = url.searchParams.get("file");
+    const file = fileParam === "CLAUDE.md" ? "CLAUDE.md" : "my-prompt.md";
     const [snapshots, stats] = await Promise.all([
-      fetchSnapshotsMeta(env),
-      fetchSnapshotStats(env),
+      fetchSnapshotsMeta(env, file),
+      fetchSnapshotStats(env, file),
     ]);
-    content = renderEvolutionView(snapshots, stats, key);
+    content = renderEvolutionView(snapshots, stats, key, file);
     title = "Evolution";
   } else if (view === "snapshot") {
     const id = url.searchParams.get("id");
@@ -142,6 +147,13 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     if (!snapA || !snapB) return new Response("Snapshot(s) not found", { status: 404 });
     content = renderDiffView(snapA, snapB, key);
     title = "Diff";
+  } else if (view === "self-modifications") {
+    const [mods, stats] = await Promise.all([
+      fetchSelfModifications(env),
+      fetchSelfModificationStats(env),
+    ]);
+    content = renderSelfModificationsView(mods, stats);
+    title = "Self-Modifications";
   } else {
     const [reflections, stats] = await Promise.all([
       fetchReflections(env),
@@ -183,7 +195,8 @@ async function handleApiRequests(request: Request, env: Env): Promise<Response> 
 
 // ── API: evolution ──
 async function handleApiEvolution(request: Request, env: Env): Promise<Response> {
-  const snapshots = await fetchSnapshotsMeta(env);
+  const file = new URL(request.url).searchParams.get("file") ?? undefined;
+  const snapshots = await fetchSnapshotsMeta(env, file);
   return new Response(JSON.stringify(snapshots), {
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
   });

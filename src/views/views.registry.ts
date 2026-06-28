@@ -13,6 +13,7 @@ export const DASHBOARD_VIEWS = [
   "requests",
   "memory",
   "sessions",
+  "self-modifications",
 ] as const;
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];

@@ -82,6 +82,7 @@ export function pageShell(opts: {
         ${navLink("requests", "Requests")}
         ${navLink("memory", "Working Memory")}
         ${navLink("sessions", "Sessions")}
+        ${navLink("self-modifications", "Self-Mods")}
       </nav>
     </div>
     <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:#6b7280">

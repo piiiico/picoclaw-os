@@ -3,7 +3,7 @@
  */
 
 import { createClient, type Client } from "@libsql/client/web";
-import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, TaskDependencyMap, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats } from "./types.ts";
+import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, TaskDependencyMap, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats, SelfModification, SelfModificationStats } from "./types.ts";
 
 export function getDb(env: Env): Client {
   return createClient({
@@ -352,13 +352,16 @@ export async function fetchRequestStats(env: Env): Promise<RequestStats> {
   };
 }
 
-// ── CLAUDE.md Snapshots ──
+// ── Constitution Snapshots (CLAUDE.md + my-prompt.md) ──
 
-export async function fetchSnapshotsMeta(env: Env): Promise<SnapshotMeta[]> {
+export async function fetchSnapshotsMeta(env: Env, file?: string): Promise<SnapshotMeta[]> {
   const db = getDb(env);
-  const result = await db.execute(
-    "SELECT id, hash, created_at, trigger, LENGTH(content) as content_len FROM claude_md_snapshots ORDER BY created_at DESC"
-  );
+  const where = file ? "WHERE file = ?" : "";
+  const args = file ? [file] : [];
+  const result = await db.execute({
+    sql: `SELECT id, hash, created_at, trigger, file, LENGTH(content) as content_len FROM claude_md_snapshots ${where} ORDER BY created_at DESC`,
+    args,
+  });
   return result.rows as unknown as SnapshotMeta[];
 }
 
@@ -371,17 +374,51 @@ export async function fetchSnapshot(env: Env, id: string): Promise<Snapshot | nu
   return result.rows.length > 0 ? (result.rows[0] as unknown as Snapshot) : null;
 }
 
-export async function fetchSnapshotStats(env: Env): Promise<SnapshotStats> {
+export async function fetchSnapshotStats(env: Env, file?: string): Promise<SnapshotStats> {
   const db = getDb(env);
+  const where = file ? "WHERE file = ?" : "";
+  const args = file ? [file] : [];
   const [totalR, latestR, triggersR] = await Promise.all([
-    db.execute("SELECT COUNT(*) as c FROM claude_md_snapshots"),
-    db.execute("SELECT created_at FROM claude_md_snapshots ORDER BY created_at DESC LIMIT 1"),
-    db.execute("SELECT COUNT(DISTINCT trigger) as c FROM claude_md_snapshots"),
+    db.execute({ sql: `SELECT COUNT(*) as c FROM claude_md_snapshots ${where}`, args }),
+    db.execute({ sql: `SELECT created_at FROM claude_md_snapshots ${where} ORDER BY created_at DESC LIMIT 1`, args }),
+    db.execute({ sql: `SELECT COUNT(DISTINCT trigger) as c FROM claude_md_snapshots ${where}`, args }),
   ]);
 
   return {
     total: Number(totalR.rows[0].c),
     latestDate: latestR.rows.length > 0 ? (latestR.rows[0].created_at as string).slice(0, 10) : "—",
     triggerCount: Number(triggersR.rows[0].c),
+  };
+}
+
+// ── Self-Modifications ──
+
+export async function fetchSelfModifications(
+  env: Env,
+  opts: { limit?: number } = {}
+): Promise<SelfModification[]> {
+  const db = getDb(env);
+  const limit = opts.limit ?? 200;
+  const result = await db.execute({
+    sql: `SELECT * FROM self_modifications ORDER BY created_at DESC LIMIT ?`,
+    args: [limit],
+  });
+  return result.rows as unknown as SelfModification[];
+}
+
+export async function fetchSelfModificationStats(env: Env): Promise<SelfModificationStats> {
+  const db = getDb(env);
+  const [totalR, predR, effectR, subR] = await Promise.all([
+    db.execute("SELECT COUNT(*) as c FROM self_modifications"),
+    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE prediction_id IS NOT NULL"),
+    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE effect IS NOT NULL AND effect != ''"),
+    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE subtraction IS NOT NULL AND subtraction != ''"),
+  ]);
+
+  return {
+    total: Number(totalR.rows[0].c),
+    withPrediction: Number(predR.rows[0].c),
+    withEffect: Number(effectR.rows[0].c),
+    withSubtraction: Number(subR.rows[0].c),
   };
 }
