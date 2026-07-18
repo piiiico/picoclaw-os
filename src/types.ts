@@ -84,17 +84,37 @@ export interface Task {
   picked_up_at: string | null;
   completed_at: string | null;
   result: string | null;
+  depends_on: string | null;       // JSON array of task IDs
+  source: string | null;           // "hakon" | "autonomous" | "scheduled"
   blocked_reason: string | null;
   blocked_until: string | null;
+  retry_count: number;
+  max_retries: number;
+  last_failure_reason: string | null;
+  weighted_priority: number;       // computed: priority + age bonus
 }
 
 export interface TaskStats {
   total: number;
   pending: number;
-  blocked: number;
+  in_progress: number;
   completed: number;
   failed: number;
+  cancelled: number;
+  blocked: number;
+  pending_review: number;
+  needs_review: number;
   byModel: Record<string, number>;
+  bySource: Record<string, number>;
+  retryRate: number;    // 0-1: fraction of pending tasks with retry_count > 0
+  stuckCount: number;   // in_progress > 1h
+  zombieCount: number;  // failed with retry_count > 0
+  healthScore: number;  // 0-100
+}
+
+export interface TaskDependencyMap {
+  // task id -> array of { id, title, status }
+  [taskId: string]: Array<{ id: string; title: string; status: string }>;
 }
 
 // ── Requests (Håkon's action items) ──
@@ -117,7 +137,7 @@ export interface RequestStats {
   done: number;
 }
 
-// ── CLAUDE.md Evolution ──
+// ── CLAUDE.md Snapshots ──
 
 export interface Snapshot {
   id: string;
@@ -125,6 +145,7 @@ export interface Snapshot {
   hash: string;
   created_at: string;
   trigger: string;
+  file: string;
 }
 
 export interface SnapshotMeta {
@@ -133,6 +154,7 @@ export interface SnapshotMeta {
   created_at: string;
   trigger: string;
   content_len: number;
+  file: string;
 }
 
 export interface SnapshotStats {
@@ -141,9 +163,74 @@ export interface SnapshotStats {
   triggerCount: number;
 }
 
+// Constitution files tracked by the evolution timeline.
+export const SNAPSHOT_FILES = ["my-prompt.md", "CLAUDE.md"] as const;
+export type SnapshotFile = (typeof SNAPSHOT_FILES)[number];
+
 export interface DiffLine {
   type: "add" | "remove" | "same";
   content: string;
   oldNum?: number;
   newNum?: number;
+}
+
+// ── Self-Modifications (two-engine doctrine: REACH=variation, BIND=selection) ──
+
+export interface SelfModification {
+  id: string;
+  created_at: string;
+  session_id: string | null;
+  artifact: string;
+  summary: string;
+  subtraction: string | null;
+  rationale: string | null;
+  prediction_id: string | null;
+  effect: string | null;
+}
+
+// Mode parsed from the summary prefix. Unprefixed rows predate 2026-07-19 → legacy BIND.
+export type SelfModMode = "REACH" | "BIND" | "CONSUME" | "BIND_LEGACY";
+
+// Joined prediction row (the change put under selection). Real columns from predictions table.
+export interface PredictionLite {
+  id: string;
+  claim: string;
+  confidence: number;
+  deadline: string;
+  status: string;            // open / correct / wrong / partial / unmeasurable / broken_query / pending_human_review
+  correct: number | null;    // 1 hit, 0 miss, null unresolved
+  brier_score: number | null;
+  actual_value: string | null;
+}
+
+// Joined checker verdict (audit_reviews). Absence of a row = unreviewed (checker backlog).
+export interface AuditReviewLite {
+  id: string;
+  self_mod_id: string;
+  verdict: string;                       // PASS | CHALLENGE
+  recommended_disposition: string | null;
+  status: string;                        // open | resolved
+  resolution: string | null;
+  checker_correct: number | null;        // scored later when the audited prediction resolves
+}
+
+// A self-mod with its prediction + checker verdict joined in, and its mode parsed.
+export interface SelfModEnriched extends SelfModification {
+  mode: SelfModMode;
+  displaySummary: string;                // summary with the mode prefix stripped
+  prediction: PredictionLite | null;
+  review: AuditReviewLite | null;
+}
+
+// Loop-health header: the two-engine schedule at a glance.
+export interface LoopHealth {
+  modeWindow: Array<{ id: string; mode: SelfModMode; created_at: string }>; // last 4 fresh audits (CONSUME excluded), newest first
+  forcedNext: "REACH" | "BIND" | null;   // engine forced by the floor rule, or null (free choice)
+  reach30d: number;
+  bind30d: number;
+  reachAll: number;
+  bindAll: number;
+  checkerBacklog: number;                 // self-mods with no audit_reviews row
+  openChallenges: number;                 // audit_reviews verdict=CHALLENGE and status=open
+  predictionsDue7d: number;               // linked predictions still open with deadline within 7 days (incl. overdue)
 }

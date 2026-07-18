@@ -76,6 +76,32 @@ export function statCard(label: string, value: string | number, color = "#e0e0e0
     </div>`;
 }
 
+/** H / A / S pill for task source */
+export function sourceBadgeTask(source: string | null): string {
+  if (!source) return "";
+  const map: Record<string, { label: string; color: string }> = {
+    hakon:      { label: "H", color: "#f59e0b" },
+    autonomous: { label: "A", color: "#6b7280" },
+    scheduled:  { label: "S", color: "#3b82f6" },
+  };
+  const info = map[source] || { label: source.slice(0, 1).toUpperCase(), color: "#6b7280" };
+  return `<span title="${esc(source)}" style="background:${info.color}30;color:${info.color};padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;font-family:monospace">${info.label}</span>`;
+}
+
+/** "↻ X/Y" retry indicator — only renders when retry_count > 0 */
+export function retryIndicator(retryCount: number, maxRetries: number): string {
+  if (!retryCount) return "";
+  const color = retryCount >= maxRetries ? "#ef4444" : "#f59e0b";
+  return `<span style="color:${color};font-size:11px;margin-left:4px" title="retry ${retryCount} of ${maxRetries}">↻ ${retryCount}/${maxRetries}</span>`;
+}
+
+/** 0-100 health gauge rendered as colored text with a mini bar */
+export function healthScoreGauge(score: number): string {
+  const color = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : "#ef4444";
+  const filled = Math.round(score / 10);
+  const bar = "█".repeat(filled) + "░".repeat(10 - filled);
+  return `<span style="color:${color};font-family:monospace;font-size:13px" title="Queue health score">${bar} ${score}</span>`;
+}
 export function triggerBadge(trigger: string): string {
   const colors: Record<string, string> = {
     consolidation: "#8b5cf6",

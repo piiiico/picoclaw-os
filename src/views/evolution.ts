@@ -12,7 +12,7 @@ export function renderSnapshotView(snap: Snapshot, key: string): string {
 
   return `
     <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <a href="?key=${esc(key)}&view=evolution" style="color:#6b7280;font-size:13px">&larr; Back to timeline</a>
+      <a href="?key=${esc(key)}&view=evolution&file=${esc(snap.file)}" style="color:#6b7280;font-size:13px">&larr; Back to timeline</a>
       <span style="color:#4b5563">|</span>
       <span style="color:#9ca3af;font-size:13px">${esc(snap.created_at.slice(0, 19).replace("T", " "))} UTC</span>
       ${triggerBadge(snap.trigger)}
@@ -20,7 +20,7 @@ export function renderSnapshotView(snap: Snapshot, key: string): string {
     </div>
     <div style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;overflow:hidden">
       <div style="padding:12px 16px;border-bottom:1px solid #262626;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:14px;font-weight:600;color:#e0e0e0">CLAUDE.md</span>
+        <span style="font-size:14px;font-weight:600;color:#e0e0e0">${esc(snap.file)}</span>
         <span style="font-size:12px;color:#6b7280">${lines.length} lines &middot; ${Math.round(snap.content.length / 1024)}KB</span>
       </div>
       <pre style="padding:16px;margin:0;font-family:'SF Mono','Fira Code',monospace;font-size:12px;line-height:1.6;color:#a0a0a0;overflow-x:auto;white-space:pre-wrap;max-height:80vh;overflow-y:auto">${esc(snap.content)}</pre>
@@ -51,7 +51,8 @@ export function renderDiffView(snapA: Snapshot, snapB: Snapshot, key: string): s
 
   return `
     <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <a href="?key=${esc(key)}&view=evolution" style="color:#6b7280;font-size:13px">&larr; Back to timeline</a>
+      <a href="?key=${esc(key)}&view=evolution&file=${esc(newer.file)}" style="color:#6b7280;font-size:13px">&larr; Back to timeline</a>
+      <span style="color:#4b5563;font-size:13px;font-family:monospace">${esc(newer.file)}</span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:12px">
@@ -80,7 +81,8 @@ export function renderDiffView(snapA: Snapshot, snapB: Snapshot, key: string): s
 export function renderEvolutionView(
   snapshots: SnapshotMeta[],
   stats: SnapshotStats,
-  key: string
+  key: string,
+  file: string = "my-prompt.md"
 ): string {
   let timelineHtml = "";
   if (snapshots.length === 0) {
@@ -123,7 +125,7 @@ export function renderEvolutionView(
           <span style="color:#6b7280;font-size:12px">${sizeKb}KB</span>
           <span style="flex:1"></span>
           <a href="?key=${esc(key)}&view=snapshot&id=${esc(s.id)}" style="font-size:12px;color:#10b981;padding:4px 10px;background:#10b98115;border-radius:4px">View</a>
-          ${prevSnap ? `<a href="?key=${esc(key)}&view=diff&a=${esc(prevSnap.id)}&b=${esc(s.id)}" style="font-size:12px;color:#8b5cf6;padding:4px 10px;background:#8b5cf615;border-radius:4px">Diff&darr;</a>` : ""}
+          ${prevSnap ? `<a href="?key=${esc(key)}&view=diff&a=${esc(prevSnap.id)}&b=${esc(s.id)}&file=${esc(file)}" style="font-size:12px;color:#8b5cf6;padding:4px 10px;background:#8b5cf615;border-radius:4px">Diff&darr;</a>` : ""}
         </div>`;
     }
     timelineHtml += `</div>`;
@@ -134,7 +136,7 @@ export function renderEvolutionView(
     ? `
     <div style="background:#1a1a1a;border:1px solid #262626;border-radius:8px;padding:16px;margin-top:24px">
       <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#e0e0e0">Compare any two snapshots</h3>
-      <form style="display:flex;gap:12px;align-items:end;flex-wrap:wrap" onsubmit="event.preventDefault(); const a=document.getElementById('cmp-a').value; const b=document.getElementById('cmp-b').value; if(a&&b&&a!==b) location.href='?key=${esc(key)}&view=diff&a='+a+'&b='+b;">
+      <form style="display:flex;gap:12px;align-items:end;flex-wrap:wrap" onsubmit="event.preventDefault(); const a=document.getElementById('cmp-a').value; const b=document.getElementById('cmp-b').value; if(a&&b&&a!==b) location.href='?key=${esc(key)}&view=diff&a='+a+'&b='+b+'&file=${esc(file)}';">
         <div>
           <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Snapshot A</label>
           <select id="cmp-a" style="background:#0a0a0a;color:#e0e0e0;border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:12px;font-family:monospace">
@@ -151,7 +153,20 @@ export function renderEvolutionView(
       </form>
     </div>` : "";
 
+  // File toggle — my-prompt.md (constitution, higher weight) vs CLAUDE.md (operational manual)
+  const tab = (f: string, label: string) => {
+    const active = f === file;
+    return `<a href="?key=${esc(key)}&view=evolution&file=${esc(f)}" style="font-size:13px;padding:6px 14px;border-radius:6px;font-family:monospace;${active ? "background:#8b5cf6;color:#fff;font-weight:600" : "background:#1a1a1a;color:#9ca3af;border:1px solid #262626"}">${esc(label)}</a>`;
+  };
+  const toggleHtml = `<div style="display:flex;gap:8px;margin-bottom:16px">${tab("my-prompt.md", "my-prompt.md")}${tab("CLAUDE.md", "CLAUDE.md")}</div>`;
+
+  const isConstitution = file === "my-prompt.md";
+  const subtitle = isConstitution
+    ? "The workspace constitution — always-injected, overrides CLAUDE.md. This file must change the most (non-negotiable #6)."
+    : "The operational manual — behavioral DNA, maintained by nightly consolidation.";
+
   return `
+    ${toggleHtml}
     <!-- Stats cards -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px">
       ${statCard("Total Snapshots", stats.total, "#8b5cf6")}
@@ -159,8 +174,8 @@ export function renderEvolutionView(
       ${statCard("Trigger Types", stats.triggerCount)}
     </div>
 
-    <h2 style="font-size:16px;font-weight:600;margin-bottom:4px;color:#e0e0e0">CLAUDE.md Evolution</h2>
-    <p style="font-size:13px;color:#6b7280;margin-bottom:16px">Track how the agent's behavioral DNA changes over time. Each snapshot captures a moment in CLAUDE.md's evolution.</p>
+    <h2 style="font-size:16px;font-weight:600;margin-bottom:4px;color:#e0e0e0">${esc(file)} Evolution</h2>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:16px">${esc(subtitle)}</p>
     ${timelineHtml}
     ${selectorHtml}`;
 }
