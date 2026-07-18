@@ -3,7 +3,7 @@
  */
 
 import { createClient, type Client } from "@libsql/client/web";
-import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, TaskDependencyMap, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats, SelfModification, SelfModificationStats } from "./types.ts";
+import type { Env, Reflection, ReflectionStats, Session, SessionStats, WorkingMemoryEntry, WorkingMemoryStats, Task, TaskStats, TaskDependencyMap, PicoRequest, RequestStats, Snapshot, SnapshotMeta, SnapshotStats, SelfModification, SelfModMode, SelfModEnriched, PredictionLite, AuditReviewLite, LoopHealth } from "./types.ts";
 
 export function getDb(env: Env): Client {
   return createClient({
@@ -406,19 +406,120 @@ export async function fetchSelfModifications(
   return result.rows as unknown as SelfModification[];
 }
 
-export async function fetchSelfModificationStats(env: Env): Promise<SelfModificationStats> {
+// Parse the two-engine mode from a self-mod summary prefix.
+// REACH:/BIND:/CONSUME: → that mode; unprefixed (pre-2026-07-19) → legacy BIND.
+export function parseSelfModMode(summary: string): { mode: SelfModMode; display: string } {
+  const m = summary.match(/^\s*(REACH|BIND|CONSUME)\s*:\s*/i);
+  if (m) {
+    return { mode: m[1].toUpperCase() as "REACH" | "BIND" | "CONSUME", display: summary.slice(m[0].length) };
+  }
+  return { mode: "BIND_LEGACY", display: summary };
+}
+
+// Self-modifications with prediction + checker verdict joined, and mode parsed.
+export async function fetchSelfModificationsEnriched(
+  env: Env,
+  opts: { limit?: number } = {}
+): Promise<SelfModEnriched[]> {
+  const mods = await fetchSelfModifications(env, opts);
+  if (mods.length === 0) return [];
+
   const db = getDb(env);
-  const [totalR, predR, effectR, subR] = await Promise.all([
-    db.execute("SELECT COUNT(*) as c FROM self_modifications"),
-    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE prediction_id IS NOT NULL"),
-    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE effect IS NOT NULL AND effect != ''"),
-    db.execute("SELECT COUNT(*) as c FROM self_modifications WHERE subtraction IS NOT NULL AND subtraction != ''"),
+  const predIds = [...new Set(mods.map((m) => m.prediction_id).filter(Boolean))] as string[];
+  const smIds = mods.map((m) => m.id);
+
+  const [predRes, reviewRes] = await Promise.all([
+    predIds.length
+      ? db.execute({
+          sql: `SELECT id, claim, confidence, deadline, status, correct, brier_score, actual_value
+                FROM predictions WHERE id IN (${predIds.map(() => "?").join(",")})`,
+          args: predIds,
+        })
+      : Promise.resolve({ rows: [] as any[] } as any),
+    db.execute({
+      sql: `SELECT id, self_mod_id, verdict, recommended_disposition, status, resolution, checker_correct, created_at
+            FROM audit_reviews WHERE self_mod_id IN (${smIds.map(() => "?").join(",")})
+            ORDER BY created_at DESC`,
+      args: smIds,
+    }),
   ]);
 
-  return {
-    total: Number(totalR.rows[0].c),
-    withPrediction: Number(predR.rows[0].c),
-    withEffect: Number(effectR.rows[0].c),
-    withSubtraction: Number(subR.rows[0].c),
-  };
+  const predMap = new Map<string, PredictionLite>();
+  for (const r of predRes.rows as any[]) {
+    predMap.set(r.id as string, {
+      id: r.id as string,
+      claim: r.claim as string,
+      confidence: Number(r.confidence),
+      deadline: r.deadline as string,
+      status: r.status as string,
+      correct: r.correct === null ? null : Number(r.correct),
+      brier_score: r.brier_score === null ? null : Number(r.brier_score),
+      actual_value: (r.actual_value as string | null) ?? null,
+    });
+  }
+
+  // Most-recent review per self-mod (rows already ordered created_at DESC).
+  const reviewMap = new Map<string, AuditReviewLite>();
+  for (const r of reviewRes.rows as any[]) {
+    const smId = r.self_mod_id as string;
+    if (reviewMap.has(smId)) continue;
+    reviewMap.set(smId, {
+      id: r.id as string,
+      self_mod_id: smId,
+      verdict: r.verdict as string,
+      recommended_disposition: (r.recommended_disposition as string | null) ?? null,
+      status: r.status as string,
+      resolution: (r.resolution as string | null) ?? null,
+      checker_correct: r.checker_correct === null ? null : Number(r.checker_correct),
+    });
+  }
+
+  return mods.map((m) => {
+    const { mode, display } = parseSelfModMode(m.summary);
+    return {
+      ...m,
+      mode,
+      displaySummary: display,
+      prediction: m.prediction_id ? predMap.get(m.prediction_id) ?? null : null,
+      review: reviewMap.get(m.id) ?? null,
+    };
+  });
+}
+
+// Two-engine loop health, computed from the enriched rows (newest-first).
+export function computeLoopHealth(mods: SelfModEnriched[]): LoopHealth {
+  const now = Date.now();
+  const cutoff30 = now - 30 * 86400000;
+  const due7 = now + 7 * 86400000;
+
+  const isReach = (m: SelfModMode) => m === "REACH";
+  const isBind = (m: SelfModMode) => m === "BIND" || m === "BIND_LEGACY";
+
+  let reach30d = 0, bind30d = 0, reachAll = 0, bindAll = 0;
+  for (const m of mods) {
+    if (!isReach(m.mode) && !isBind(m.mode)) continue; // CONSUME excluded from engine balance
+    const recent = new Date(m.created_at).getTime() >= cutoff30;
+    if (isReach(m.mode)) { reachAll++; if (recent) reach30d++; }
+    else { bindAll++; if (recent) bind30d++; }
+  }
+
+  // Mode window = fresh audits only (CONSUME excluded), newest first.
+  const fresh = mods.filter((m) => m.mode !== "CONSUME");
+  const modeWindow = fresh.slice(0, 4).map((m) => ({ id: m.id, mode: m.mode, created_at: m.created_at }));
+
+  // Floor rule: engine forced when the last 3 fresh rows lack it (legacy counts as BIND).
+  const last3 = fresh.slice(0, 3).map((m) => (m.mode === "BIND_LEGACY" ? "BIND" : m.mode));
+  let forcedNext: "REACH" | "BIND" | null = null;
+  if (last3.length > 0) {
+    if (!last3.includes("REACH")) forcedNext = "REACH";
+    else if (!last3.includes("BIND")) forcedNext = "BIND";
+  }
+
+  const checkerBacklog = mods.filter((m) => !m.review).length;
+  const openChallenges = mods.filter((m) => m.review && m.review.verdict === "CHALLENGE" && m.review.status === "open").length;
+  const predictionsDue7d = mods.filter(
+    (m) => m.prediction && m.prediction.status === "open" && new Date(m.prediction.deadline).getTime() <= due7
+  ).length;
+
+  return { modeWindow, forcedNext, reach30d, bind30d, reachAll, bindAll, checkerBacklog, openChallenges, predictionsDue7d };
 }

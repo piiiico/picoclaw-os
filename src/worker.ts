@@ -20,8 +20,8 @@ import {
   fetchSnapshotsMeta,
   fetchSnapshot,
   fetchSnapshotStats,
-  fetchSelfModifications,
-  fetchSelfModificationStats,
+  fetchSelfModificationsEnriched,
+  computeLoopHealth,
 } from "./db.ts";
 import { pageShell } from "./html/layout.ts";
 import { renderReflectionsView } from "./views/reflections.ts";
@@ -148,11 +148,9 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     content = renderDiffView(snapA, snapB, key);
     title = "Diff";
   } else if (view === "self-modifications") {
-    const [mods, stats] = await Promise.all([
-      fetchSelfModifications(env),
-      fetchSelfModificationStats(env),
-    ]);
-    content = renderSelfModificationsView(mods, stats);
+    const mods = await fetchSelfModificationsEnriched(env);
+    const health = computeLoopHealth(mods);
+    content = renderSelfModificationsView(mods, health);
     title = "Self-Modifications";
   } else {
     const [reflections, stats] = await Promise.all([

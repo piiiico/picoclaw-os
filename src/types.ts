@@ -174,7 +174,7 @@ export interface DiffLine {
   newNum?: number;
 }
 
-// ── Self-Modifications ──
+// ── Self-Modifications (two-engine doctrine: REACH=variation, BIND=selection) ──
 
 export interface SelfModification {
   id: string;
@@ -188,9 +188,49 @@ export interface SelfModification {
   effect: string | null;
 }
 
-export interface SelfModificationStats {
-  total: number;
-  withPrediction: number;
-  withEffect: number;
-  withSubtraction: number;
+// Mode parsed from the summary prefix. Unprefixed rows predate 2026-07-19 → legacy BIND.
+export type SelfModMode = "REACH" | "BIND" | "CONSUME" | "BIND_LEGACY";
+
+// Joined prediction row (the change put under selection). Real columns from predictions table.
+export interface PredictionLite {
+  id: string;
+  claim: string;
+  confidence: number;
+  deadline: string;
+  status: string;            // open / correct / wrong / partial / unmeasurable / broken_query / pending_human_review
+  correct: number | null;    // 1 hit, 0 miss, null unresolved
+  brier_score: number | null;
+  actual_value: string | null;
+}
+
+// Joined checker verdict (audit_reviews). Absence of a row = unreviewed (checker backlog).
+export interface AuditReviewLite {
+  id: string;
+  self_mod_id: string;
+  verdict: string;                       // PASS | CHALLENGE
+  recommended_disposition: string | null;
+  status: string;                        // open | resolved
+  resolution: string | null;
+  checker_correct: number | null;        // scored later when the audited prediction resolves
+}
+
+// A self-mod with its prediction + checker verdict joined in, and its mode parsed.
+export interface SelfModEnriched extends SelfModification {
+  mode: SelfModMode;
+  displaySummary: string;                // summary with the mode prefix stripped
+  prediction: PredictionLite | null;
+  review: AuditReviewLite | null;
+}
+
+// Loop-health header: the two-engine schedule at a glance.
+export interface LoopHealth {
+  modeWindow: Array<{ id: string; mode: SelfModMode; created_at: string }>; // last 4 fresh audits (CONSUME excluded), newest first
+  forcedNext: "REACH" | "BIND" | null;   // engine forced by the floor rule, or null (free choice)
+  reach30d: number;
+  bind30d: number;
+  reachAll: number;
+  bindAll: number;
+  checkerBacklog: number;                 // self-mods with no audit_reviews row
+  openChallenges: number;                 // audit_reviews verdict=CHALLENGE and status=open
+  predictionsDue7d: number;               // linked predictions still open with deadline within 7 days (incl. overdue)
 }
